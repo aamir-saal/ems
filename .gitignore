@@ -1,0 +1,29 @@
+__pycache__/
+Agent
+
+# Editors
+.idea/
+
+# Mac/OSX
+.DS_Store
+
+# sqlite
+*.sqlite3
+
+# sqlite
+sqlite3.db
+
+src.zip
+
+# Redis files
+dump.rdb
+
+
+# local settings file
+src/local_settings.py
+ 
+# Virtual env
+venv/
+
+# Media
+media/
