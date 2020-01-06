@@ -1,26 +1,46 @@
-import datetime
+from enum import Enum
 
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Sum, F
+from django.core.validators import MinValueValidator
+from django.db.models import Sum
 from django.utils.safestring import mark_safe
 
-# from ems.settings import MEDIA_DIRECTORY
 from django.conf import settings
+from simple_history.models import HistoricalRecords
 
 
-class DocumentType(models.Model):
-    name = models.CharField(max_length=512, blank=False, null=False)
-    description = models.TextField(null=False, blank=True)
+class TimeStampedModel(models.Model):
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class WorkSite(TimeStampedModel):
+    name = models.CharField(max_length=550)
+    location = models.CharField(max_length=550)
 
     def __str__(self):
-        return self.name
+        return f"{self.name}"
 
 
-class UserDocument(models.Model):
+class DocumentType(Enum):
+    PASSPORT = "Passport"
+    VISA = "Visa"
+    LABOUR_CARD = "Labour card"
+    EMIRATES_ID = "Emirates ID"
+    HOME_COUNTRY_ID = "Home country ID"
+
+    @classmethod
+    def choices(cls):
+        return [(key.value, key.name) for key in cls]
+
+
+class UserDocument(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    document_type = models.ForeignKey(DocumentType, on_delete=models.CASCADE, null=False)
+    document_type = models.CharField(choices=DocumentType.choices(), max_length=550)
     name = models.CharField(max_length=256, null=False, blank=True)
     description = models.CharField(max_length=512, null=False, blank=True)
     issued_by = models.CharField(max_length=256, null=False, blank=True)
@@ -37,9 +57,13 @@ class UserDocument(models.Model):
     image.short_description = 'Image'
 
 
-class UserProfile(models.Model):
+class UserProfile(TimeStampedModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     profile_pic = models.FileField()
+
+    class Meta:
+        verbose_name = 'Employee'
+        verbose_name_plural = 'Employees'
 
     def __str__(self):
         return self.user.get_full_name()
@@ -49,72 +73,71 @@ class UserProfile(models.Model):
 
     profile_pic_tag.short_description = 'Picture'
 
-    def get_current_month_earning(self):
-        return EmployeeTimeSheet.get_user_current_month_earning(self.user)
+    def _total_earning(self):
+        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(
+            self.user, ExpenseTypes.SALARY.name))
 
-    get_current_month_earning.short_description = "Current month earning"
+    _total_earning.short_description = "Total Earning"
 
-    def get_current_month_expenses(self):
-        return EmployeeExpense.get_user_current_month_expenses(self.user)
+    def _total_expenses(self):
+        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(self.user, ExpenseTypes.EXPENSE_ADVANCE.name))
 
-    get_current_month_expenses.short_description = "Current month expenses"
+    _total_expenses.short_description = "Total Expenses"
 
-    def get_current_month_net_salary(self):
-        return self.get_current_month_earning() - self.get_current_month_expenses()
+    def _current_balance(self):
+        total_earning = Ledger.user_total_expenses_or_earning(
+            self.user, ExpenseTypes.SALARY.name)
+        total_expenses = Ledger.user_total_expenses_or_earning(
+            self.user, ExpenseTypes.EXPENSE_ADVANCE.name)
+        return "{:.2f}".format(total_earning - total_expenses)
 
-    get_current_month_net_salary.short_description = "Current month net salary"
+    _current_balance.short_description = "Current Balance"
 
 
-class EmployeeTimeSheet(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    work_date = models.DateField(null=False)
-    hours = models.FloatField(validators=[MinValueValidator(0.0), MaxValueValidator(24)])
-    hourly_rate = models.FloatField(validators=[MinValueValidator(0.0)], null=True)
+class TimeSheetMonthlyRecord(TimeStampedModel):
+    work_month = models.DateField(null=False)
+    time_sheet_file = models.FileField()
+    work_site = models.ForeignKey(WorkSite, on_delete=models.PROTECT, null=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    def __str__(self):
+        return f"{self.work_month.strftime('%B, %Y')}({self.work_site})"
+
+
+class ExpenseTypes(Enum):
+    EXPENSE_ADVANCE = 'Expense_or_advance'
+    SALARY = 'Salary'
 
     @classmethod
-    def get_user_current_month_earning(cls, user):
-        total_current_month_earning = cls.objects.filter(
-            work_date__month=datetime.datetime.now().month,
-            user=user
-        ).values('user').annotate(total_earning=Sum(F('hours') * F('hourly_rate'))).order_by('user').first()
-
-        return total_current_month_earning.get('total_earning', 0)
-
-    get_user_current_month_earning.short_description = 'Current month Earning'
-
-    def __str__(self):
-        return f"{self.user}->{self.work_date}:{self.hours}@{self.hourly_rate}"
-
-    class Meta:
-        ordering = ('user', '-work_date')
+    def choices(cls):
+        return tuple((choice.name, choice.value) for choice in cls)
 
 
-class EmployeeExpense(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+class Ledger(models.Model):
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='ledgers')
+    type = models.CharField(
+        choices=ExpenseTypes.choices(),
+        max_length=50
+    )
     expense_date = models.DateField(null=False)
     amount = models.FloatField(null=False, blank=False)
     notes = models.TextField(null=True)
 
-    @classmethod
-    def get_user_current_month_expenses(cls, user):
-        total_current_month_earning = cls.objects.filter(
-            expense_date__month=datetime.datetime.now().month,
-            user=user
-        ).values('user').annotate(total_expenses=Sum('amount')).order_by('user').first()
+    time_sheet_record = models.ForeignKey(TimeSheetMonthlyRecord, null=True, on_delete=models.SET_NULL, blank=True)
+    hours = models.FloatField(validators=[MinValueValidator(0.0)], null=True, blank=True)
+    hourly_rate = models.FloatField(validators=[MinValueValidator(0.0)], null=True, blank=True)
+    trade = models.CharField(max_length=255, null=True, blank=True)
 
-        return total_current_month_earning.get('total_expenses', 0)
-
-    get_user_current_month_expenses.short_description = 'Current month Expenses'
-
-    def __str__(self):
-        return f"{self.user}-{self.expense_date}-{self.amount}"
+    history = HistoricalRecords()
 
     class Meta:
-        ordering = ('user', '-expense_date')
+        ordering = ('-expense_date', 'user', 'type')
 
+    @classmethod
+    def user_total_expenses_or_earning(cls, user, expense_type):
+        total_expense_or_earning = cls.objects.filter(
+                    user=user, type=expense_type
+                ).values('user').annotate(total=Sum('amount')).order_by('user').first()
 
-class Invoice(models.Model):
-    user = models.ForeignKey(User, on_delete=models.PROTECT)
-    created = models.DateTimeField(auto_now_add=True)
-    modified = models.DateTimeField(auto_now=True)
-    amount = models.FloatField()
+        return total_expense_or_earning.get('total') if total_expense_or_earning else 0
+
