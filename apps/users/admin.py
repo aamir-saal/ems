@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Permission, Group
 from django.utils.translation import gettext_lazy as _
 
 from apps.users.forms import LedgerModelForm, UserChangeForm
@@ -196,6 +196,8 @@ class MonthlySheetAdmin(ReadOnlyModelAdmin):
     class Meta:
         model = TimeSheetMonthlyRecord
 
+
+admin.site.unregister(Group)
 
 admin.site.register(User, EmployeeAdmin)
 admin.site.register(UserDocument, UserDocumentAdmin)
