@@ -1,13 +1,56 @@
 from enum import Enum
 
 from django.db import models
-from django.contrib.auth.models import User
+
+from django.contrib.auth.models import Permission, AbstractUser
+from django.db.models.signals import post_migrate
+from django.contrib.contenttypes.models import ContentType
+
 from django.core.validators import MinValueValidator
 from django.db.models import Sum
 from django.utils.safestring import mark_safe
 
 from django.conf import settings
 from simple_history.models import HistoricalRecords
+
+
+class User(AbstractUser):
+    profile_pic = models.FileField()
+
+    class Meta:
+        verbose_name = 'Employee'
+        verbose_name_plural = 'Employees'
+        permissions = (
+            ('CAN_VIEW_UserProfile', 'Can View UserProfile'),
+        )
+
+    def __str__(self):
+        return self.get_full_name()
+
+    def profile_pic_tag(self):
+        return mark_safe(f'<img src="{settings.MEDIA_URL}/{self.profile_pic}" width="50" height="50" />')
+
+    profile_pic_tag.short_description = 'Picture'
+
+    def _total_earning(self):
+        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(
+            self, ExpenseTypes.SALARY.name))
+
+    _total_earning.short_description = "Total Earning"
+
+    def _total_expenses(self):
+        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(self, ExpenseTypes.EXPENSE_ADVANCE.name))
+
+    _total_expenses.short_description = "Total Expenses"
+
+    def _current_balance(self):
+        total_earning = Ledger.user_total_expenses_or_earning(
+            self, ExpenseTypes.SALARY.name)
+        total_expenses = Ledger.user_total_expenses_or_earning(
+            self, ExpenseTypes.EXPENSE_ADVANCE.name)
+        return "{:.2f}".format(total_earning - total_expenses)
+
+    _current_balance.short_description = "Current Balance"
 
 
 class TimeStampedModel(models.Model):
@@ -21,6 +64,11 @@ class TimeStampedModel(models.Model):
 class WorkSite(TimeStampedModel):
     name = models.CharField(max_length=550)
     location = models.CharField(max_length=550)
+
+    class Meta:
+        permissions = (
+            ('CAN_VIEW_WorkSite', 'Can View WorkSite'),
+        )
 
     def __str__(self):
         return f"{self.name}"
@@ -39,7 +87,7 @@ class DocumentType(Enum):
 
 
 class UserDocument(TimeStampedModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     document_type = models.CharField(choices=DocumentType.choices(), max_length=550)
     name = models.CharField(max_length=256, null=False, blank=True)
     description = models.CharField(max_length=512, null=False, blank=True)
@@ -47,6 +95,11 @@ class UserDocument(TimeStampedModel):
     issued_date = models.DateField(null=True)
     expiry_date = models.DateField(null=True)
     image = models.FileField()
+
+    class Meta:
+        permissions = (
+            ('CAN_VIEW_UserDocument', 'Can View UserDocument'),
+        )
 
     def __str__(self):
         return "{}'s {}".format(self.user, self.document_type)
@@ -57,48 +110,16 @@ class UserDocument(TimeStampedModel):
     image.short_description = 'Image'
 
 
-class UserProfile(TimeStampedModel):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    profile_pic = models.FileField()
-
-    class Meta:
-        verbose_name = 'Employee'
-        verbose_name_plural = 'Employees'
-
-    def __str__(self):
-        return self.user.get_full_name()
-
-    def profile_pic_tag(self):
-        return mark_safe(f'<img src="{settings.MEDIA_URL}/{self.profile_pic}" width="50" height="50" />')
-
-    profile_pic_tag.short_description = 'Picture'
-
-    def _total_earning(self):
-        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(
-            self.user, ExpenseTypes.SALARY.name))
-
-    _total_earning.short_description = "Total Earning"
-
-    def _total_expenses(self):
-        return "{:.2f}".format(Ledger.user_total_expenses_or_earning(self.user, ExpenseTypes.EXPENSE_ADVANCE.name))
-
-    _total_expenses.short_description = "Total Expenses"
-
-    def _current_balance(self):
-        total_earning = Ledger.user_total_expenses_or_earning(
-            self.user, ExpenseTypes.SALARY.name)
-        total_expenses = Ledger.user_total_expenses_or_earning(
-            self.user, ExpenseTypes.EXPENSE_ADVANCE.name)
-        return "{:.2f}".format(total_earning - total_expenses)
-
-    _current_balance.short_description = "Current Balance"
-
-
 class TimeSheetMonthlyRecord(TimeStampedModel):
     work_month = models.DateField(null=False)
     time_sheet_file = models.FileField()
     work_site = models.ForeignKey(WorkSite, on_delete=models.PROTECT, null=True)
     notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        permissions = (
+            ('CAN_VIEW_TimeSheetMonthlyRecord', 'Can View TimeSheetMonthlyRecord'),
+        )
     
     def __str__(self):
         return f"{self.work_month.strftime('%B, %Y')}({self.work_site})"
@@ -114,7 +135,7 @@ class ExpenseTypes(Enum):
 
 
 class Ledger(models.Model):
-    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='ledgers')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='ledgers')
     type = models.CharField(
         choices=ExpenseTypes.choices(),
         max_length=50
@@ -132,6 +153,9 @@ class Ledger(models.Model):
 
     class Meta:
         ordering = ('-expense_date', 'user', 'type')
+        permissions = (
+            ('CAN_VIEW_Ledger', 'Can View Ledger'),
+        )
 
     @classmethod
     def user_total_expenses_or_earning(cls, user, expense_type):
@@ -141,3 +165,18 @@ class Ledger(models.Model):
 
         return total_expense_or_earning.get('total') if total_expense_or_earning else 0
 
+
+def add_view_only_permission(sender, **kwargs):
+    '''This creates a view only permission for sender'''
+    for content_type in ContentType.objects.all():
+        codename = 'can_view_%s' % content_type.model
+        name = 'Can View %s' % content_type.name
+        if not Permission.objects.filter(
+            content_type=content_type,
+            codename=codename):
+            Permission.objects.create(
+            content_type=content_type,
+            codename=codename,
+            name=name)
+
+post_migrate.connect(add_view_only_permission)

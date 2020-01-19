@@ -18,12 +18,13 @@ from pathlib import Path
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static"),
-]
+# STATICFILES_DIRS = [
+#     os.path.join(BASE_DIR, "static"),
+# ]
 
+AUTH_USER_MODEL = 'users.User'
 
-#Rest of the settings
+# Rest of the settings
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -36,8 +37,9 @@ SECRET_KEY = '=l^qlu%=ja)o2h!8*05sc6^v97#p!tu+pz_&kpxs1=0cc==h11'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['aamirkhan206.pythonanywhere.com', '127.0.0.1:8001', '127.0.0.1']
 
+STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 # Application definition
 

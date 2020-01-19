@@ -1,6 +1,9 @@
 import datetime
 
-from django.forms import ModelForm, DateField
+from django.contrib.auth import forms
+from django.forms import ModelForm, DateField, Form, FileField
+from django.contrib.auth.forms import UserChangeForm as BaseUserChangeForm
+from django.contrib.auth.forms import UserCreationForm as BaseUserCreationForm
 
 from apps.users.models import Ledger
 from apps.users.widgets import MonthYearWidget
@@ -17,3 +20,9 @@ class LedgerModelForm(ModelForm):
     class Meta:
         fields = '__all__'
         model = Ledger
+
+
+class UserChangeForm(BaseUserChangeForm):
+    def __init__(self, *args, **kwargs):
+        super(UserChangeForm, self).__init__(*args, **kwargs)
+        self.fields['profile_pic'] = FileField(label="Profile Picture")
