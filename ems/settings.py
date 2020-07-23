@@ -37,7 +37,7 @@ SECRET_KEY = '=l^qlu%=ja)o2h!8*05sc6^v97#p!tu+pz_&kpxs1=0cc==h11'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['aamirkhan206.pythonanywhere.com', '127.0.0.1:8001', '127.0.0.1']
+ALLOWED_HOSTS = ['aamirkhan206.pythonanywhere.com', '127.0.0.1:8001', '127.0.0.1', 'aymanelect.com']
 
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
