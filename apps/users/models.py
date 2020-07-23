@@ -48,7 +48,10 @@ class User(AbstractUser):
             self, ExpenseTypes.SALARY.name)
         total_expenses = Ledger.user_total_expenses_or_earning(
             self, ExpenseTypes.EXPENSE_ADVANCE.name)
-        return "{:.2f}".format(total_earning - total_expenses)
+        current_balance = total_earning - total_expenses
+        color = 'style="color: red;"' if current_balance < 0 else ''
+        current_balance = "{:.2f}".format(current_balance)
+        return mark_safe(f'<span {color}>{current_balance}</span>')
 
     _current_balance.short_description = "Current Balance"
 
